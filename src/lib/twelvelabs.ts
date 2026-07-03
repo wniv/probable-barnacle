@@ -68,22 +68,12 @@ export async function waitForAssetReady(
   throw new Error(`Timed out waiting for Twelve Labs asset ${assetId} to become ready`);
 }
 
-export interface CaptionTypoIssue {
+export interface AnalysisIssue {
   timestamp: string | null;
   incorrectText: string | null;
   suggestion: string | null;
   description: string;
 }
-
-const CAPTION_TYPO_PROMPT = `You are a strict QA reviewer for video advertisements. Carefully read every piece of on-screen text in this video: burned-in captions, subtitles, titles, lower-thirds, and any other overlaid text. Identify every spelling mistake, typo, or grammatical error in that text.
-
-For each issue found, report:
-- the approximate timestamp (MM:SS) where it appears
-- the exact incorrect text as it appears on screen
-- a suggested correction
-- a short description of the problem
-
-If there are no typos anywhere in the video, return an empty issues array. Do not report style or phrasing preferences, only actual spelling/grammar errors.`;
 
 const RESPONSE_SCHEMA = {
   type: "object",
@@ -111,14 +101,14 @@ interface NonStreamAnalyzeResponse {
   finish_reason: string;
 }
 
-export async function analyzeCaptionTypos(assetId: string): Promise<CaptionTypoIssue[]> {
+export async function analyzeWithPrompt(assetId: string, prompt: string): Promise<AnalysisIssue[]> {
   const res = await fetch(`${API_BASE}/analyze`, {
     method: "POST",
     headers: headers({ "Content-Type": "application/json" }),
     body: JSON.stringify({
       model_name: "pegasus1.5",
       video: { type: "asset_id", asset_id: assetId },
-      prompt: CAPTION_TYPO_PROMPT,
+      prompt,
       stream: false,
       temperature: 0.1,
       response_format: { type: "json_schema", json_schema: RESPONSE_SCHEMA },
@@ -138,6 +128,6 @@ export async function analyzeCaptionTypos(assetId: string): Promise<CaptionTypoI
     timestamp: issue.timestamp ?? null,
     incorrectText: issue.incorrect_text ?? null,
     suggestion: issue.suggestion ?? null,
-    description: issue.description ?? "Caption typo detected",
+    description: issue.description ?? "Issue detected",
   }));
 }

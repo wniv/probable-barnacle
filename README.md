@@ -170,8 +170,8 @@ signed URL generation either as of writing).
    random key (`Ad.storageKey`); the filename is used as that video's label.
 2. For each video, the server uploads it to Twelve Labs as an asset (`POST /assets`) and waits for
    it to finish processing.
-3. It calls Pegasus 1.5 via `POST /analyze` with a prompt asking it to find spelling/grammar
-   errors in on-screen text and captions, requesting structured JSON output.
+3. For every enabled **QA rule** (admin-configurable — see below), it calls Pegasus 1.5 via
+   `POST /analyze` with that rule's prompt, requesting structured JSON output.
 4. Detected issues are stored in Postgres. After each video in the set finishes, issues are
    cross-referenced across the whole set (`src/lib/adsets.ts`): if the same flagged text shows up
    in 2+ videos, it's a **common edit** (almost always the shared body content behind different
@@ -198,15 +198,29 @@ not auto-pull new agency uploads — someone still has to paste the link. Automa
 require registering an OAuth app with Frame.io's V4 API and/or requesting Air API access from
 their account team, plus a webhook receiver — a bigger lift than this app currently does.
 
-## Adding more QA rules
+## Managing QA rules
 
-Each check lives as its own prompt + parser in [`src/lib/twelvelabs.ts`](src/lib/twelvelabs.ts)
-(see `analyzeCaptionTypos`) and issues are stored with a `type` field
-(`Issue.type`, e.g. `"caption_typo"`) so more rule types can be added without changing the schema.
-To add a new rule: write a new `analyze<Rule>` function with its own prompt/JSON schema, call it
-alongside the existing check in `src/app/api/ad-sets/route.ts`, and give the resulting issues a
-new `type`. The common-vs-specific cross-referencing in `src/lib/adsets.ts` groups by
-`type` + flagged text, so it applies automatically to any new rule's issues too.
+QA checks are admin-editable, not hardcoded — manage them from the "QA rules" section of `/admin`:
+
+- **Add a rule**: give it a name and a prompt describing what Pegasus should look for. Every
+  enabled rule runs against every uploaded video (one Twelve Labs `/analyze` call per rule per
+  video), so a set with several videos and several rules takes proportionally longer to process.
+- **Edit, disable, or delete** a rule at any time. Disabling stops it from running on new uploads
+  without affecting past results; deleting removes the rule definition but leaves any issues it
+  already produced in place (they aren't linked by foreign key, just by a matching `type` string).
+- All rules share the same output shape — for each instance found, Pegasus reports a timestamp,
+  optionally some flagged text and a suggested fix, and a description. This keeps rule creation to
+  "write a good prompt" rather than needing a schema builder, at the cost of every rule looking
+  like a "flag this text at this moment" check (works well for typos, missing disclaimers, missing
+  CTAs, banned claims, etc. — less naturally for checks that aren't about a specific on-screen
+  moment).
+- The original caption-typo check is seeded automatically as the first rule the first time the
+  app needs a rule list (via `getEnabledQaRules()` in `src/lib/qarules.ts`), so existing installs
+  keep working unchanged after this feature was added — no manual data migration needed.
+- Under the hood: `src/lib/twelvelabs.ts`'s `analyzeWithPrompt()` is the generic Twelve Labs call;
+  `src/app/api/ad-sets/route.ts` loops over every enabled `QaRule` per video and tags the resulting
+  issues with that rule's `type`. The common-vs-specific cross-referencing in
+  `src/lib/adsets.ts` groups by `type` + flagged text, so it applies automatically to any rule.
 
 ## Tech stack
 

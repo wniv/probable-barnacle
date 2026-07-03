@@ -4,17 +4,22 @@ export function IssueCard({
   suggestion,
   description,
   badge,
+  ruleLabel,
 }: {
   timestamp: string | null;
   incorrectText: string | null;
   suggestion: string | null;
   description: string;
   badge?: string;
+  ruleLabel?: string;
 }) {
   return (
     <li className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
       <div className="flex items-center justify-between">
-        <span className="text-xs font-mono text-zinc-500">{timestamp ?? "—"}</span>
+        <span className="flex items-center gap-2 text-xs font-mono text-zinc-500">
+          {timestamp ?? "—"}
+          {ruleLabel && <span className="font-sans text-zinc-400">· {ruleLabel}</span>}
+        </span>
         {badge && (
           <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
             {badge}

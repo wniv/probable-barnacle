@@ -3,8 +3,9 @@ import path from "path";
 import { auth } from "@/auth";
 import { recomputeCommonIssues } from "@/lib/adsets";
 import { prisma } from "@/lib/prisma";
+import { getEnabledQaRules } from "@/lib/qarules";
 import { uploadVideo } from "@/lib/storage";
-import { analyzeCaptionTypos, uploadAsset, waitForAssetReady } from "@/lib/twelvelabs";
+import { analyzeWithPrompt, uploadAsset, waitForAssetReady } from "@/lib/twelvelabs";
 
 interface VideoInput {
   filename: string;
@@ -60,6 +61,8 @@ export async function POST(request: Request) {
     );
   }
 
+  const qaRules = await getEnabledQaRules();
+
   const adSet = await prisma.adSet.create({
     data: {
       name: name.trim(),
@@ -95,19 +98,31 @@ export async function POST(request: Request) {
       await waitForAssetReady(assetId);
 
       await prisma.ad.update({ where: { id: ad.id }, data: { status: "analyzing" } });
-      const issues = await analyzeCaptionTypos(assetId);
 
-      await prisma.$transaction([
-        prisma.issue.createMany({
-          data: issues.map((issue) => ({
+      const issueRows: {
+        adId: string;
+        type: string;
+        timestamp: string | null;
+        incorrectText: string | null;
+        suggestion: string | null;
+        description: string;
+      }[] = [];
+      for (const rule of qaRules) {
+        const issues = await analyzeWithPrompt(assetId, rule.prompt);
+        for (const issue of issues) {
+          issueRows.push({
             adId: ad.id,
-            type: "caption_typo",
+            type: rule.type,
             timestamp: issue.timestamp,
             incorrectText: issue.incorrectText,
             suggestion: issue.suggestion,
             description: issue.description,
-          })),
-        }),
+          });
+        }
+      }
+
+      await prisma.$transaction([
+        prisma.issue.createMany({ data: issueRows }),
         prisma.ad.update({ where: { id: ad.id }, data: { status: "complete" } }),
       ]);
     } catch (error) {

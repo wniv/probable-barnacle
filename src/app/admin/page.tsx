@@ -1,7 +1,10 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { CreateAgencyForm } from "@/components/admin/CreateAgencyForm";
+import { CreateQaRuleForm } from "@/components/admin/CreateQaRuleForm";
 import { CreateUserForm } from "@/components/admin/CreateUserForm";
+import { QaRuleRow } from "@/components/admin/QaRuleRow";
+import { getEnabledQaRules } from "@/lib/qarules";
 import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
@@ -15,9 +18,12 @@ export default async function AdminPage() {
     redirect("/");
   }
 
-  const [agencies, users] = await Promise.all([
+  await getEnabledQaRules(); // ensures the default rule is seeded before we list all rules below
+
+  const [agencies, users, qaRules] = await Promise.all([
     prisma.agency.findMany({ orderBy: { createdAt: "desc" }, include: { _count: { select: { ads: true, users: true } } } }),
     prisma.user.findMany({ orderBy: { createdAt: "desc" }, include: { agency: true } }),
+    prisma.qaRule.findMany({ orderBy: { createdAt: "asc" } }),
   ]);
 
   return (
@@ -25,7 +31,9 @@ export default async function AdminPage() {
       <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-10 px-6 py-16">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Admin</h1>
-          <p className="mt-1 text-sm text-zinc-500">Manage agencies and their user accounts.</p>
+          <p className="mt-1 text-sm text-zinc-500">
+            Manage agencies, their user accounts, and the QA rules run on every upload.
+          </p>
         </div>
 
         <section className="flex flex-col gap-3">
@@ -61,6 +69,19 @@ export default async function AdminPage() {
                   {user.role === "ADMIN" ? "Admin" : user.agency?.name ?? "No agency"}
                 </span>
               </li>
+            ))}
+          </ul>
+        </section>
+
+        <section className="flex flex-col gap-3">
+          <h2 className="text-sm font-medium text-zinc-500">QA rules</h2>
+          <CreateQaRuleForm />
+          <ul className="flex flex-col divide-y divide-zinc-200 rounded-xl border border-zinc-200 bg-white dark:divide-zinc-800 dark:border-zinc-800 dark:bg-zinc-950">
+            {qaRules.length === 0 && (
+              <li className="px-5 py-4 text-sm text-zinc-500">No QA rules yet.</li>
+            )}
+            {qaRules.map((rule) => (
+              <QaRuleRow key={rule.id} rule={rule} />
             ))}
           </ul>
         </section>

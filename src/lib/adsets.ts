@@ -15,6 +15,7 @@ interface IssueLike {
 
 export interface CommonIssueGroup {
   key: string;
+  type: string;
   incorrectText: string | null;
   suggestion: string | null;
   description: string;
@@ -35,6 +36,7 @@ export function groupCommonIssues(ads: Array<{ filename: string; issues: IssueLi
       } else {
         groups.set(key, {
           key,
+          type: issue.type,
           incorrectText: issue.incorrectText,
           suggestion: issue.suggestion,
           description: issue.description,

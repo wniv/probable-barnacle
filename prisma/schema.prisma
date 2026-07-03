@@ -71,6 +71,16 @@ model Ad {
   issues          Issue[]
 }
 
+model QaRule {
+  id        String   @id @default(cuid())
+  name      String
+  type      String   @unique
+  prompt    String
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 model Issue {
   id             String   @id @default(cuid())
   ad             Ad       @relation(fields: [adId], references: [id], onDelete: Cascade)

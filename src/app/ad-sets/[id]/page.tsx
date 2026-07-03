@@ -29,18 +29,22 @@ export default async function AdSetDetailPage({
   }
 
   const { id } = await params;
-  const adSet = await prisma.adSet.findUnique({
-    where: { id },
-    include: {
-      agency: true,
-      ads: { include: { issues: true }, orderBy: { filename: "asc" } },
-    },
-  });
+  const [adSet, qaRules] = await Promise.all([
+    prisma.adSet.findUnique({
+      where: { id },
+      include: {
+        agency: true,
+        ads: { include: { issues: true }, orderBy: { filename: "asc" } },
+      },
+    }),
+    prisma.qaRule.findMany({ select: { type: true, name: true } }),
+  ]);
 
   if (!adSet || !canViewAdSet(session, adSet)) {
     notFound();
   }
 
+  const ruleNameByType = new Map(qaRules.map((rule) => [rule.type, rule.name]));
   const isAdmin = session.user.role === "ADMIN";
   const commonIssues = groupCommonIssues(adSet.ads);
   const platform = adSet.ads[0]?.platform;
@@ -78,6 +82,7 @@ export default async function AdSetDetailPage({
                   suggestion={issue.suggestion}
                   description={issue.description}
                   badge={`In ${issue.videoFilenames.length} of ${adSet.ads.length} videos`}
+                  ruleLabel={ruleNameByType.get(issue.type)}
                 />
               ))}
             </ul>
@@ -126,6 +131,7 @@ export default async function AdSetDetailPage({
                             incorrectText={issue.incorrectText}
                             suggestion={issue.suggestion}
                             description={issue.description}
+                            ruleLabel={ruleNameByType.get(issue.type)}
                           />
                         ))}
                       </ul>
