@@ -1,0 +1,68 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  ADMIN
+  AGENCY
+}
+
+model Agency {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+  users     User[]
+  ads       Ad[]
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String?
+  role         Role     @default(AGENCY)
+  agency       Agency?  @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  agencyId     String?
+  createdAt    DateTime @default(now())
+  ads          Ad[]     @relation("AdCreatedBy")
+}
+
+model Ad {
+  id              String   @id @default(cuid())
+  filename        String
+  storageKey      String
+  mimeType        String   @default("video/mp4")
+  platform        String
+  status          String   @default("uploaded")
+  errorMessage    String?
+  assetId         String?
+  agency          Agency   @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  agencyId        String
+  createdBy       User?    @relation("AdCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  issues          Issue[]
+}
+
+model Issue {
+  id          String   @id @default(cuid())
+  ad          Ad       @relation(fields: [adId], references: [id], onDelete: Cascade)
+  adId        String
+  type        String
+  timestamp   String?
+  incorrectText String?
+  suggestion  String?
+  description String
+  createdAt   DateTime @default(now())
+}
