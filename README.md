@@ -71,11 +71,11 @@ calls) works with any Postgres instance.
    `@replit/object-storage` picks up the default bucket automatically.
 
 4. **Set Secrets.** Add `TWELVE_LABS_API_KEY` and `AUTH_SECRET` in the workspace Secrets pane.
+   **Do not** add `DATABASE_URL` as a Secret — see the warning below.
 
    **Important:** workspace Secrets only apply to the dev workspace. When you create the
    Deployment (next step), open its own **Secrets** section in the Deployments pane and add
-   `TWELVE_LABS_API_KEY`, `AUTH_SECRET`, and `DATABASE_URL` there too — they don't carry over
-   automatically.
+   `TWELVE_LABS_API_KEY` and `AUTH_SECRET` there too — they don't carry over automatically.
 
 5. **Create the deployment.** This repo's [`.replit`](.replit) file is pre-configured for
    **Autoscale** (`deploymentTarget = "cloudrun"`), which is correct here since the app has no
@@ -83,17 +83,59 @@ calls) works with any Postgres instance.
    command: `npm run build`. Run command applies pending Prisma migrations and starts the server:
    `npx prisma migrate deploy && npm run start`.
 
-6. **Bootstrap the admin account.** After the first successful deploy, open the Replit **Shell**
-   tab (against the workspace, which shares the same `DATABASE_URL` if you're using the Database
-   integration) and run:
+6. **Bootstrap the admin account — against the right database (see warning below).**
 
-   ```bash
-   npm run create-admin -- you@example.com "a-strong-password" "Your Name"
-   ```
+### Warning: Development vs. Production databases are separate
+
+Replit's Database integration provisions **two different Postgres databases**: a Development one
+(used by the workspace — the Shell, `npm run dev`, etc.) and a Production one (used only by
+Deployments, running on Neon). They are not the same database, and there's no automatic syncing
+between them. This means:
+
+- **Never manually set `DATABASE_URL` as a Secret** (workspace or deployment) — Replit auto-injects
+  the correct one for whichever context is running (dev workspace vs. deployed app). Manually
+  setting it makes Replit treat it as an "external database" and stop auto-managing it, which is
+  an easy way to end up pointed at the wrong one.
+- **Any one-off script you run in the Shell — including `create-admin` — hits the Development
+  database**, not Production. Since deployments only ever read Production, an admin account
+  created via a plain `npm run create-admin` in the Shell will not exist for your live app, and
+  logging in will fail with "Invalid email or password" even though the command reported success.
+- **To run a script against Production**, get its connection string from the Database tool
+  (switch its view from Development to Production, then find the connection string under
+  Settings), and override `DATABASE_URL` inline for that one command only:
+
+  ```bash
+  DATABASE_URL="<production-connection-string>" npm run create-admin -- you@example.com "a-strong-password" "Your Name"
+  ```
+
+  Do this for the initial admin bootstrap, and again any time you need to create/fix an account
+  directly against the live app's data.
 
 7. **Push updates.** Edit code (in Replit or via GitHub sync), then hit "Redeploy" in the
    Deployments pane. Autoscale rebuilds and replaces instances; expect a brief interruption per
    deploy since this isn't a zero-downtime rollout.
+
+### Other Replit deployment gotchas already handled in this repo
+
+These are fixed in code already — noted here so they don't get re-debugged from scratch:
+
+- **Build must use webpack, not Turbopack.** `package.json`'s `build` script is
+  `next build --webpack`. Turbopack's native binary crashed with a raw `Bus error` (not a JS
+  exception) in Replit's Autoscale build container — likely an architecture/memory issue specific
+  to that build sandbox, not our code.
+- **`postinstall: prisma generate`** in `package.json`. The deployment build container runs
+  `npm install` from scratch and never has `src/generated/prisma` (gitignored, generated output),
+  so the build failed with `Module not found` until this ran automatically after install.
+- **`trustHost: true`** in `src/auth.ts`. Auth.js rejects requests by default unless the `Host`
+  header matches a trusted value; Replit's Autoscale proxies requests internally, so the app
+  crashed on startup with `UntrustedHost` until this was set — standard requirement for Auth.js
+  behind any reverse proxy.
+- **Never let Replit's Agent "fix" a deployment error for you.** Every one of the above was
+  diagnosed and fixed by hand. At two different points, using Replit's Agent (via its chat panel,
+  or its "Fix with Agent" button on a deploy-failure screen) went far beyond the actual problem —
+  once scaffolding an entire unrelated backend and dumping ~89k lines of generated build output
+  into the repo, and once writing a live API key in plaintext into the git-tracked `.replit` file
+  and pushing it to GitHub. If a deployment fails, work through the actual log output instead.
 
 ### Known limitation: no HTTP range support on video playback
 
