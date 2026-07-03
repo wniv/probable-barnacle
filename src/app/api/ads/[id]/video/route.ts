@@ -13,8 +13,12 @@ export async function GET(
   }
 
   const { id } = await params;
-  const ad = await prisma.ad.findUnique({ where: { id } });
-  if (!ad || !canAccessAgency(session, ad.agencyId)) {
+  const ad = await prisma.ad.findUnique({
+    where: { id },
+    include: { adSet: { select: { deletedAt: true } } },
+  });
+  const isAdmin = session.user.role === "ADMIN";
+  if (!ad || !canAccessAgency(session, ad.agencyId) || (!isAdmin && ad.adSet.deletedAt)) {
     return new Response("Not found", { status: 404 });
   }
 

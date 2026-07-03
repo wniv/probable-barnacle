@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { Ad, AdSet, Agency, Issue } from "@/generated/prisma/client";
+import { DeleteAdSetButton } from "@/components/DeleteAdSetButton";
 
 type AdWithIssues = Ad & { issues: Issue[] };
 type AdSetWithAds = AdSet & { ads: AdWithIssues[]; agency?: Agency };
@@ -42,17 +43,15 @@ export function AdSetList({ adSets, showAgency = false }: { adSets: AdSetWithAds
         const platform = adSet.ads[0]?.platform;
 
         return (
-          <li key={adSet.id}>
-            <Link
-              href={`/ad-sets/${adSet.id}`}
-              className="flex items-center justify-between gap-4 px-5 py-4 hover:bg-zinc-50 dark:hover:bg-zinc-900"
-            >
+          <li key={adSet.id} className="flex items-center gap-2 px-5 py-4 hover:bg-zinc-50 dark:hover:bg-zinc-900">
+            <Link href={`/ad-sets/${adSet.id}`} className="flex flex-1 items-center justify-between gap-4">
               <div className="flex flex-col gap-1">
                 <span className="text-sm font-medium">{adSet.name}</span>
                 <span className="text-xs uppercase tracking-wide text-zinc-500">
                   {platform}
                   {showAgency && adSet.agency ? ` · ${adSet.agency.name}` : ""}
                   {` · ${adSet.ads.length} video${adSet.ads.length === 1 ? "" : "s"}`}
+                  {adSet.deletedAt ? " · Deleted" : ""}
                 </span>
               </div>
               <div className="flex items-center gap-3">
@@ -72,6 +71,7 @@ export function AdSetList({ adSets, showAgency = false }: { adSets: AdSetWithAds
                 </span>
               </div>
             </Link>
+            <DeleteAdSetButton adSetId={adSet.id} isAdmin={showAgency} />
           </li>
         );
       })}

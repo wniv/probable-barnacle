@@ -47,6 +47,7 @@ model AdSet {
   createdBy       User?    @relation("AdSetCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
   createdByUserId String?
   createdAt       DateTime @default(now())
+  deletedAt       DateTime?
   ads             Ad[]
 }
 

@@ -15,9 +15,10 @@ export async function GET(
   const { id } = await params;
   const ad = await prisma.ad.findUnique({
     where: { id },
-    include: { issues: true },
+    include: { issues: true, adSet: { select: { deletedAt: true } } },
   });
-  if (!ad || !canAccessAgency(session, ad.agencyId)) {
+  const isAdmin = session.user.role === "ADMIN";
+  if (!ad || !canAccessAgency(session, ad.agencyId) || (!isAdmin && ad.adSet.deletedAt)) {
     return Response.json({ error: "Ad not found" }, { status: 404 });
   }
   return Response.json({ ad });

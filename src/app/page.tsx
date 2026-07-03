@@ -14,7 +14,9 @@ export default async function Home() {
 
   const isAdmin = session.user.role === "ADMIN";
   const adSets = await prisma.adSet.findMany({
-    where: isAdmin ? {} : { agencyId: session.user.agencyId ?? "" },
+    where: isAdmin
+      ? {}
+      : { agencyId: session.user.agencyId ?? "", deletedAt: null },
     orderBy: { createdAt: "desc" },
     include: { ads: { include: { issues: true } }, agency: true },
   });

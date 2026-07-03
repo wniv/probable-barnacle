@@ -2,8 +2,9 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { groupCommonIssues } from "@/lib/adsets";
-import { canAccessAgency } from "@/lib/authz";
+import { canViewAdSet } from "@/lib/authz";
 import { prisma } from "@/lib/prisma";
+import { DeleteAdSetButton } from "@/components/DeleteAdSetButton";
 import { IssueCard } from "@/components/IssueCard";
 
 export const dynamic = "force-dynamic";
@@ -36,10 +37,11 @@ export default async function AdSetDetailPage({
     },
   });
 
-  if (!adSet || !canAccessAgency(session, adSet.agencyId)) {
+  if (!adSet || !canViewAdSet(session, adSet)) {
     notFound();
   }
 
+  const isAdmin = session.user.role === "ADMIN";
   const commonIssues = groupCommonIssues(adSet.ads);
   const platform = adSet.ads[0]?.platform;
 
@@ -50,12 +52,16 @@ export default async function AdSetDetailPage({
           ← Back to all ad concepts
         </Link>
 
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight">{adSet.name}</h1>
-          <p className="mt-1 text-xs uppercase tracking-wide text-zinc-500">
-            {platform} · {adSet.ads.length} video{adSet.ads.length === 1 ? "" : "s"}
-            {session.user.role === "ADMIN" ? ` · ${adSet.agency.name}` : ""}
-          </p>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-xl font-semibold tracking-tight">{adSet.name}</h1>
+            <p className="mt-1 text-xs uppercase tracking-wide text-zinc-500">
+              {platform} · {adSet.ads.length} video{adSet.ads.length === 1 ? "" : "s"}
+              {isAdmin ? ` · ${adSet.agency.name}` : ""}
+              {adSet.deletedAt ? " · Deleted" : ""}
+            </p>
+          </div>
+          <DeleteAdSetButton adSetId={adSet.id} isAdmin={isAdmin} redirectTo="/" />
         </div>
 
         {commonIssues.length > 0 && (
