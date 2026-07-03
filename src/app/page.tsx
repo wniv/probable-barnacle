@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
-import { AdList } from "@/components/AdList";
+import { AdSetList } from "@/components/AdSetList";
 import { UploadForm } from "@/components/UploadForm";
 import { prisma } from "@/lib/prisma";
 
@@ -13,10 +13,10 @@ export default async function Home() {
   }
 
   const isAdmin = session.user.role === "ADMIN";
-  const ads = await prisma.ad.findMany({
+  const adSets = await prisma.adSet.findMany({
     where: isAdmin ? {} : { agencyId: session.user.agencyId ?? "" },
     orderBy: { createdAt: "desc" },
-    include: { issues: true, agency: true },
+    include: { ads: { include: { issues: true } }, agency: true },
   });
 
   return (
@@ -26,8 +26,8 @@ export default async function Home() {
           <h1 className="text-2xl font-semibold tracking-tight">Ad QA</h1>
           <p className="mt-1 text-sm text-zinc-500">
             {isAdmin
-              ? "Ads submitted by every agency."
-              : "Upload a Meta or TikTok ad and Pegasus 1.5 will flag caption typos automatically."}
+              ? "Ad concepts submitted by every agency."
+              : "Upload a Meta or TikTok ad concept — one video or a whole hook-variant set — and Pegasus 1.5 will flag caption typos automatically."}
           </p>
         </div>
 
@@ -35,9 +35,9 @@ export default async function Home() {
 
         <div className="flex flex-col gap-3">
           <h2 className="text-sm font-medium text-zinc-500">
-            {isAdmin ? "All ads" : "Uploaded ads"}
+            {isAdmin ? "All ad concepts" : "Uploaded ad concepts"}
           </h2>
-          <AdList ads={ads} showAgency={isAdmin} />
+          <AdSetList adSets={adSets} showAgency={isAdmin} />
         </div>
       </main>
     </div>

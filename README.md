@@ -122,14 +122,25 @@ signed URL generation either as of writing).
 
 ## How it works
 
-1. You submit a video (Meta or TikTok ad) through the web UI, either by uploading a file or by
-   pasting a direct/download link from Frame.io or Air (for agencies submitting assets — see
-   below). It's stored in Replit Object Storage under a random key (`Ad.storageKey`).
-2. The server uploads the video to Twelve Labs as an asset (`POST /assets`) and waits for it to
-   finish processing.
+1. You submit one or more videos as a named **ad concept/set** (Meta or TikTok) through the web
+   UI — either uploading file(s) or pasting a direct/download link from Frame.io or Air (for
+   agencies submitting assets — see below). Each video is stored in Replit Object Storage under a
+   random key (`Ad.storageKey`); the filename is used as that video's label.
+2. For each video, the server uploads it to Twelve Labs as an asset (`POST /assets`) and waits for
+   it to finish processing.
 3. It calls Pegasus 1.5 via `POST /analyze` with a prompt asking it to find spelling/grammar
    errors in on-screen text and captions, requesting structured JSON output.
-4. Detected issues are stored in Postgres and shown on the ad's detail page with timestamps.
+4. Detected issues are stored in Postgres. After each video in the set finishes, issues are
+   cross-referenced across the whole set (`src/lib/adsets.ts`): if the same flagged text shows up
+   in 2+ videos, it's a **common edit** (almost always the shared body content behind different
+   hooks); otherwise it's called out as specific to that one video's hook. The set's detail page
+   shows the common edits once at the top, then each video with its own specific edits.
+
+Videos in a set are processed one at a time within a single request, so a set of several videos
+can take several minutes end to end — the upload form warns about this. On Replit Autoscale
+(Cloud Run), very large sets risk hitting the platform's request timeout; if that becomes a real
+problem, the fix is to move processing to a background job with client-side polling instead of a
+single blocking request (not implemented, since typical ad sets are a handful of hook variants).
 
 ## Agency submissions via Frame.io / Air
 
@@ -151,8 +162,9 @@ Each check lives as its own prompt + parser in [`src/lib/twelvelabs.ts`](src/lib
 (see `analyzeCaptionTypos`) and issues are stored with a `type` field
 (`Issue.type`, e.g. `"caption_typo"`) so more rule types can be added without changing the schema.
 To add a new rule: write a new `analyze<Rule>` function with its own prompt/JSON schema, call it
-alongside the existing check in `src/app/api/ads/route.ts`, and give the resulting issues a new
-`type`.
+alongside the existing check in `src/app/api/ad-sets/route.ts`, and give the resulting issues a
+new `type`. The common-vs-specific cross-referencing in `src/lib/adsets.ts` groups by
+`type` + flagged text, so it applies automatically to any new rule's issues too.
 
 ## Tech stack
 

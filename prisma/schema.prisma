@@ -23,6 +23,7 @@ model Agency {
   createdAt DateTime @default(now())
   users     User[]
   ads       Ad[]
+  adSets    AdSet[]
 }
 
 model User {
@@ -35,6 +36,18 @@ model User {
   agencyId     String?
   createdAt    DateTime @default(now())
   ads          Ad[]     @relation("AdCreatedBy")
+  adSets       AdSet[]  @relation("AdSetCreatedBy")
+}
+
+model AdSet {
+  id              String   @id @default(cuid())
+  name            String
+  agency          Agency   @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  agencyId        String
+  createdBy       User?    @relation("AdSetCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+  ads             Ad[]
 }
 
 model Ad {
@@ -48,6 +61,8 @@ model Ad {
   assetId         String?
   agency          Agency   @relation(fields: [agencyId], references: [id], onDelete: Cascade)
   agencyId        String
+  adSet           AdSet    @relation(fields: [adSetId], references: [id], onDelete: Cascade)
+  adSetId         String
   createdBy       User?    @relation("AdCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
   createdByUserId String?
   createdAt       DateTime @default(now())
@@ -56,13 +71,14 @@ model Ad {
 }
 
 model Issue {
-  id          String   @id @default(cuid())
-  ad          Ad       @relation(fields: [adId], references: [id], onDelete: Cascade)
-  adId        String
-  type        String
-  timestamp   String?
-  incorrectText String?
-  suggestion  String?
-  description String
-  createdAt   DateTime @default(now())
+  id             String   @id @default(cuid())
+  ad             Ad       @relation(fields: [adId], references: [id], onDelete: Cascade)
+  adId           String
+  type           String
+  timestamp      String?
+  incorrectText  String?
+  suggestion     String?
+  description    String
+  isCommonToSet  Boolean  @default(false)
+  createdAt      DateTime @default(now())
 }
