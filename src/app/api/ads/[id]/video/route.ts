@@ -22,7 +22,15 @@ export async function GET(
     return new Response("Not found", { status: 404 });
   }
 
-  const buffer = await downloadVideo(ad.storageKey);
+  // The stored object can be missing (e.g. a prior partial/failed upload). Degrade to a 404
+  // instead of a 500 so the page just shows an unplayable <video> rather than erroring.
+  let buffer: Buffer;
+  try {
+    buffer = await downloadVideo(ad.storageKey);
+  } catch (error) {
+    console.error(`Video object missing for ad ${ad.id} (${ad.storageKey}):`, error);
+    return new Response("Video unavailable", { status: 404 });
+  }
   const total = buffer.length;
 
   // Honor HTTP range requests so the <video> player can scrub/seek — Safari in
