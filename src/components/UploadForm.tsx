@@ -5,11 +5,16 @@ import { useRef, useState } from "react";
 
 type SourceMode = "file" | "link";
 
+// Each video is uploaded in its own request, which must stay under Cloud Run's 32 MiB HTTP/1
+// body limit. Keep headroom for the multipart boundary and other fields.
+const MAX_FILE_BYTES = 30 * 1024 * 1024;
+
 export function UploadForm() {
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [progress, setProgress] = useState<string | null>(null);
   const [mode, setMode] = useState<SourceMode>("file");
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
 
@@ -17,8 +22,11 @@ export function UploadForm() {
     event.preventDefault();
     setError(null);
     const formData = new FormData(event.currentTarget);
+    const name = (formData.get("name") as string)?.trim();
+    const platform = (formData.get("platform") as string) || "meta";
+    const videoUrl = (formData.get("videoUrl") as string)?.trim();
 
-    if (!(formData.get("name") as string)?.trim()) {
+    if (!name) {
       setError("Please name this ad concept/set");
       return;
     }
@@ -26,24 +34,78 @@ export function UploadForm() {
       setError("Please choose at least one video file");
       return;
     }
-    if (mode === "link" && !(formData.get("videoUrl") as string)?.trim()) {
+    if (mode === "link" && !videoUrl) {
       setError("Please paste a video link");
       return;
     }
-    // Only send the field(s) for the active mode.
-    formData.delete("files");
     if (mode === "file") {
-      formData.delete("videoUrl");
-      selectedFiles.forEach((file) => formData.append("files", file));
+      const tooBig = selectedFiles.filter((f) => f.size > MAX_FILE_BYTES);
+      if (tooBig.length > 0) {
+        setError(
+          `Over the 30 MB per-file upload limit: ${tooBig.map((f) => f.name).join(", ")}. ` +
+            `Compress them, or use the “Paste a link” tab — server-side fetch has no size limit.`
+        );
+        return;
+      }
     }
 
     setIsSubmitting(true);
     try {
-      const res = await fetch("/api/ad-sets", { method: "POST", body: formData });
-      const body = await res.json();
-      if (!res.ok) {
-        throw new Error(body.error ?? "Upload failed");
+      // 1) Create the empty ad set (tiny JSON request).
+      const setRes = await fetch("/api/ad-sets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      const setBody = await setRes.json().catch(() => ({}));
+      if (!setRes.ok) throw new Error(setBody.error ?? "Could not create the ad set");
+      const setId: string = setBody.adSet.id;
+
+      // 2) Upload each video one request at a time to stay under the request-size limit.
+      const items =
+        mode === "file"
+          ? selectedFiles.map((file) => ({
+              label: file.name,
+              build: () => {
+                const fd = new FormData();
+                fd.append("platform", platform);
+                fd.append("file", file);
+                return fd;
+              },
+            }))
+          : [
+              {
+                label: "link",
+                build: () => {
+                  const fd = new FormData();
+                  fd.append("platform", platform);
+                  fd.append("videoUrl", videoUrl!);
+                  return fd;
+                },
+              },
+            ];
+
+      const failures: string[] = [];
+      for (let i = 0; i < items.length; i++) {
+        setProgress(`Uploading ${i + 1} of ${items.length}…`);
+        try {
+          const res = await fetch(`/api/ad-sets/${setId}/ads`, { method: "POST", body: items[i].build() });
+          if (!res.ok) {
+            const b = await res.json().catch(() => ({}));
+            failures.push(b.error ? `${items[i].label} (${b.error})` : items[i].label);
+          }
+        } catch {
+          failures.push(items[i].label);
+        }
       }
+
+      if (failures.length === items.length) {
+        throw new Error(`Upload failed: ${failures.join("; ")}`);
+      }
+      if (failures.length > 0) {
+        setError(`Some videos didn't upload: ${failures.join("; ")}`);
+      }
+
       formRef.current?.reset();
       setSelectedFiles([]);
       router.refresh();
@@ -51,6 +113,7 @@ export function UploadForm() {
       setError(err instanceof Error ? err.message : "Upload failed");
     } finally {
       setIsSubmitting(false);
+      setProgress(null);
     }
   }
 
@@ -173,14 +236,15 @@ export function UploadForm() {
         disabled={isSubmitting}
         className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
       >
-        {isSubmitting ? "Uploading…" : "Submit & run QA"}
+        {isSubmitting ? progress ?? "Uploading…" : "Submit & run QA"}
       </button>
       {isSubmitting ? (
-        <p className="text-xs text-zinc-500">Uploading your video(s)…</p>
+        <p className="text-xs text-zinc-500">{progress ?? "Uploading your video(s)…"}</p>
       ) : (
         <p className="text-xs text-zinc-500">
-          Once uploaded, Pegasus 1.5 analyzes each video in the background — the list below updates
-          on its own as results come in, so you can close this tab and check back later.
+          Each video uploads separately (max 30 MB per file — use a link for anything larger), then
+          Pegasus 1.5 analyzes them in the background. The list below updates on its own as results
+          come in, so you can close this tab and check back later.
         </p>
       )}
     </form>
