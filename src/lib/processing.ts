@@ -8,6 +8,9 @@ import { analyzeWithPrompt, uploadAsset, waitForAssetReady } from "@/lib/twelvel
 export const TERMINAL_STATUSES = ["complete", "failed"];
 /** The status an ad sits in after its bytes are stored, waiting to be picked up. */
 export const QUEUED_STATUS = "queued";
+/** How long a claimed ad can go without a status write before another worker treats the claim
+ * as dead and re-claims it. Must exceed the longest single step (Twelve Labs asset wait). */
+const STALE_LOCK_MS = 20 * 60 * 1000;
 
 // Guards against processing the same set twice at once (e.g. the upload kick and a
 // poll-driven resume racing). In-memory only, so a fresh process after a restart will
@@ -20,13 +23,27 @@ const inFlight = new Set<string>();
  * the issues. Advances `status` as it goes; on any failure records the message and marks failed.
  */
 async function processAd(adId: string): Promise<void> {
+  // Atomically claim the ad so two workers (e.g. separate Autoscale instances the poller
+  // pinged) can't process the same video at once and write duplicate issues. We win the claim
+  // only if it's freshly queued or a prior claim went stale — i.e. its worker died mid-run and
+  // hasn't written a status update in STALE_LOCK_MS. The single UPDATE ... WHERE is the lock:
+  // whichever worker flips the row first wins; the other sees count 0 and backs off.
+  const staleBefore = new Date(Date.now() - STALE_LOCK_MS);
+  const claim = await prisma.ad.updateMany({
+    where: {
+      id: adId,
+      status: { notIn: TERMINAL_STATUSES },
+      OR: [{ status: QUEUED_STATUS }, { updatedAt: { lt: staleBefore } }],
+    },
+    data: { status: "uploading_to_twelvelabs" },
+  });
+  if (claim.count === 0) return; // already terminal, or another worker owns it
+
   const ad = await prisma.ad.findUnique({ where: { id: adId } });
   if (!ad) return;
 
   try {
     const buffer = await downloadVideo(ad.storageKey);
-
-    await prisma.ad.update({ where: { id: ad.id }, data: { status: "uploading_to_twelvelabs" } });
     const assetId = await uploadAsset(buffer, ad.filename, ad.mimeType);
     await prisma.ad.update({ where: { id: ad.id }, data: { status: "processing", assetId } });
 
