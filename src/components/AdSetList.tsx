@@ -6,7 +6,7 @@ type AdWithIssues = Ad & { issues: Issue[] };
 type AdSetWithAds = AdSet & { ads: AdWithIssues[]; agency?: Agency };
 
 function aggregateStatus(ads: AdWithIssues[]): "processing" | "complete" | "failed" | "partial" {
-  const inProgress = ["uploaded", "uploading_to_twelvelabs", "processing", "analyzing"];
+  const inProgress = ["queued", "uploaded", "uploading_to_twelvelabs", "processing", "analyzing"];
   if (ads.some((ad) => inProgress.includes(ad.status))) return "processing";
   if (ads.every((ad) => ad.status === "complete")) return "complete";
   if (ads.every((ad) => ad.status === "failed")) return "failed";

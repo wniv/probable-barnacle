@@ -1,11 +1,11 @@
 import { randomUUID } from "crypto";
+import { lookup } from "dns/promises";
+import { isIP } from "net";
 import path from "path";
 import { auth } from "@/auth";
-import { recomputeCommonIssues } from "@/lib/adsets";
 import { prisma } from "@/lib/prisma";
-import { getEnabledQaRules } from "@/lib/qarules";
+import { kickProcessing, QUEUED_STATUS } from "@/lib/processing";
 import { uploadVideo } from "@/lib/storage";
-import { analyzeWithPrompt, uploadAsset, waitForAssetReady } from "@/lib/twelvelabs";
 
 interface VideoInput {
   filename: string;
@@ -61,8 +61,6 @@ export async function POST(request: Request) {
     );
   }
 
-  const qaRules = await getEnabledQaRules();
-
   const adSet = await prisma.adSet.create({
     data: {
       name: name.trim(),
@@ -71,6 +69,9 @@ export async function POST(request: Request) {
     },
   });
 
+  // Persist each video's bytes to Object Storage and create its row up front, then hand the
+  // slow Twelve Labs work (upload → wait → analyze, minutes per video) to a background driver
+  // so the request returns immediately instead of holding the connection open for the whole run.
   for (const video of videos) {
     const ext = path.extname(video.filename) || ".mp4";
     const storageKey = `${randomUUID()}${ext}`;
@@ -81,57 +82,23 @@ export async function POST(request: Request) {
         storageKey,
         mimeType: video.mimeType,
         platform,
-        status: "uploaded",
+        status: QUEUED_STATUS,
         agencyId: session.user.agencyId,
         adSetId: adSet.id,
         createdByUserId: session.user.id,
       },
     });
 
+    // A single video failing to store shouldn't sink the whole batch — mark just that one failed.
     try {
       await uploadVideo(storageKey, video.buffer);
-
-      await prisma.ad.update({ where: { id: ad.id }, data: { status: "uploading_to_twelvelabs" } });
-      const assetId = await uploadAsset(video.buffer, video.filename, video.mimeType);
-      await prisma.ad.update({ where: { id: ad.id }, data: { status: "processing", assetId } });
-
-      await waitForAssetReady(assetId);
-
-      await prisma.ad.update({ where: { id: ad.id }, data: { status: "analyzing" } });
-
-      const issueRows: {
-        adId: string;
-        type: string;
-        timestamp: string | null;
-        incorrectText: string | null;
-        suggestion: string | null;
-        description: string;
-      }[] = [];
-      for (const rule of qaRules) {
-        const issues = await analyzeWithPrompt(assetId, rule.prompt);
-        for (const issue of issues) {
-          issueRows.push({
-            adId: ad.id,
-            type: rule.type,
-            timestamp: issue.timestamp,
-            incorrectText: issue.incorrectText,
-            suggestion: issue.suggestion,
-            description: issue.description,
-          });
-        }
-      }
-
-      await prisma.$transaction([
-        prisma.issue.createMany({ data: issueRows }),
-        prisma.ad.update({ where: { id: ad.id }, data: { status: "complete" } }),
-      ]);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown error during analysis";
+      const message = error instanceof Error ? error.message : "Could not store video";
       await prisma.ad.update({ where: { id: ad.id }, data: { status: "failed", errorMessage: message } });
     }
-
-    await recomputeCommonIssues(adSet.id);
   }
+
+  kickProcessing(adSet.id);
 
   const result = await prisma.adSet.findUnique({
     where: { id: adSet.id },
@@ -140,15 +107,64 @@ export async function POST(request: Request) {
   return Response.json({ adSet: result }, { status: 201 });
 }
 
-async function fetchVideoFromUrl(url: string): Promise<VideoInput> {
+/** Rejects loopback, private, link-local and other non-public IP ranges to block SSRF. */
+function isPrivateAddress(ip: string): boolean {
+  if (isIP(ip) === 4) {
+    const [a, b] = ip.split(".").map(Number);
+    return (
+      a === 10 ||
+      a === 127 ||
+      a === 0 ||
+      (a === 169 && b === 254) || // link-local (incl. cloud metadata 169.254.169.254)
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168) ||
+      (a === 100 && b >= 64 && b <= 127) // carrier-grade NAT
+    );
+  }
+  const v6 = ip.toLowerCase();
+  return (
+    v6 === "::1" ||
+    v6 === "::" ||
+    v6.startsWith("fc") || // unique local
+    v6.startsWith("fd") ||
+    v6.startsWith("fe80") || // link-local
+    v6.startsWith("::ffff:") // IPv4-mapped — resolve separately below
+  );
+}
+
+/** Parses and validates a user-supplied asset URL, guarding against SSRF to internal hosts. */
+async function assertSafePublicUrl(url: string): Promise<URL> {
   let parsed: URL;
   try {
     parsed = new URL(url);
   } catch {
     throw new Error("That doesn't look like a valid URL");
   }
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    throw new Error("Only http(s) links are supported");
+  }
 
-  const res = await fetch(parsed);
+  const host = parsed.hostname;
+  // If the host is a literal IP, check it directly; otherwise resolve every A/AAAA record.
+  const addresses = isIP(host)
+    ? [host]
+    : (await lookup(host, { all: true }).catch(() => [])).map((a) => a.address);
+  if (addresses.length === 0) {
+    throw new Error("Could not resolve that link's host");
+  }
+  for (const address of addresses) {
+    const bare = address.startsWith("::ffff:") ? address.slice(7) : address;
+    if (isPrivateAddress(address) || isPrivateAddress(bare)) {
+      throw new Error("That link points to a private or internal address");
+    }
+  }
+  return parsed;
+}
+
+async function fetchVideoFromUrl(url: string): Promise<VideoInput> {
+  const parsed = await assertSafePublicUrl(url);
+
+  const res = await fetch(parsed, { redirect: "error" });
   if (!res.ok) {
     throw new Error(`Could not download that link (HTTP ${res.status})`);
   }
