@@ -4,12 +4,15 @@ import { auth } from "@/auth";
 import { groupCommonIssues } from "@/lib/adsets";
 import { canViewAdSet } from "@/lib/authz";
 import { prisma } from "@/lib/prisma";
+import { TERMINAL_STATUSES } from "@/lib/processing";
 import { DeleteAdSetButton } from "@/components/DeleteAdSetButton";
 import { IssueCard } from "@/components/IssueCard";
+import { ProcessingPoller } from "@/components/ProcessingPoller";
 
 export const dynamic = "force-dynamic";
 
 const STATUS_LABEL: Record<string, string> = {
+  queued: "Queued…",
   uploaded: "Uploaded",
   uploading_to_twelvelabs: "Uploading…",
   processing: "Processing…",
@@ -48,10 +51,12 @@ export default async function AdSetDetailPage({
   const isAdmin = session.user.role === "ADMIN";
   const commonIssues = groupCommonIssues(adSet.ads);
   const platform = adSet.ads[0]?.platform;
+  const isProcessing = adSet.ads.some((ad) => !TERMINAL_STATUSES.includes(ad.status));
 
   return (
     <div className="flex flex-1 flex-col bg-zinc-50 dark:bg-black">
       <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-8 px-6 py-16">
+        <ProcessingPoller adSetIds={[adSet.id]} active={isProcessing} />
         <Link href="/" className="text-sm text-zinc-500 hover:underline">
           ← Back to all ad concepts
         </Link>

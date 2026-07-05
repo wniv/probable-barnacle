@@ -173,12 +173,14 @@ export function UploadForm() {
         disabled={isSubmitting}
         className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
       >
-        {isSubmitting ? "Analyzing with Pegasus 1.5…" : "Submit & run QA"}
+        {isSubmitting ? "Uploading…" : "Submit & run QA"}
       </button>
-      {isSubmitting && (
+      {isSubmitting ? (
+        <p className="text-xs text-zinc-500">Uploading your video(s)…</p>
+      ) : (
         <p className="text-xs text-zinc-500">
-          Each video is analyzed one at a time — a set of several videos can take several minutes
-          in total. Keep this tab open until it finishes.
+          Once uploaded, Pegasus 1.5 analyzes each video in the background — the list below updates
+          on its own as results come in, so you can close this tab and check back later.
         </p>
       )}
     </form>

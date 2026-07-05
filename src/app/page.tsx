@@ -1,8 +1,10 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { AdSetList } from "@/components/AdSetList";
+import { ProcessingPoller } from "@/components/ProcessingPoller";
 import { UploadForm } from "@/components/UploadForm";
 import { prisma } from "@/lib/prisma";
+import { TERMINAL_STATUSES } from "@/lib/processing";
 
 export const dynamic = "force-dynamic";
 
@@ -20,6 +22,10 @@ export default async function Home() {
     orderBy: { createdAt: "desc" },
     include: { ads: { include: { issues: true } }, agency: true },
   });
+
+  const processingIds = adSets
+    .filter((set) => set.ads.some((ad) => !TERMINAL_STATUSES.includes(ad.status)))
+    .map((set) => set.id);
 
   return (
     <div className="flex flex-1 flex-col bg-zinc-50 dark:bg-black">
@@ -41,6 +47,8 @@ export default async function Home() {
           </h2>
           <AdSetList adSets={adSets} showAgency={isAdmin} />
         </div>
+
+        <ProcessingPoller adSetIds={processingIds} active={processingIds.length > 0} />
       </main>
     </div>
   );
